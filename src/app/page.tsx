@@ -340,9 +340,15 @@ export default function Home() {
           for (const line of lines) {
             if (line.trim().startsWith('data: ')) {
               const jsonStr = line.slice(6);
+              let data: any = null;
               try {
-                const data = JSON.parse(jsonStr);
+                data = JSON.parse(jsonStr);
+              } catch (e) {
+                // Ignore parse errors for partial chunks
+                continue;
+              }
 
+              if (data) {
                 if (data.status === 'progress') {
                   setPosts((prev) =>
                     prev.map((p) =>
@@ -359,8 +365,6 @@ export default function Home() {
                 } else if (data.status === 'error') {
                   throw new Error(data.error);
                 }
-              } catch (e) {
-                // Ignore parse errors for partial chunks
               }
             }
           }

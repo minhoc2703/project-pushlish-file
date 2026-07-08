@@ -329,7 +329,7 @@ async function downloadImageAsBuffer(url: string): Promise<Buffer> {
     headers['Referer'] = referer;
   }
 
-  const response = await fetch(url, { headers });
+  const response = await fetch(url, { headers, cache: 'no-store' });
   if (!response.ok) {
     throw new Error(`Không thể tải ảnh từ URL (HTTP ${response.status}): ${url}`);
   }
