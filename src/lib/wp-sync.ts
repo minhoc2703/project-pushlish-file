@@ -878,26 +878,27 @@ export async function syncPost(
     });
     currentIndex += mainTitleText.length;
 
-    // Chèn ảnh nổi bật (Featured Image) nếu có
+    // Chèn ảnh nổi bật (Featured Image) nếu có và đã tải lên Drive thành công
     if (featuredImageUrl) {
       const driveUrl = imageUrlMap[featuredImageUrl];
-      const targetUrl = driveUrl || featuredImageUrl;
-      requests.push({
-        insertInlineImage: {
-          uri: targetUrl,
-          location: { index: currentIndex }
-        }
-      });
-      currentIndex += 1;
-      
-      const newlineText = '\n\n';
-      requests.push({
-        insertText: {
-          text: newlineText,
-          location: { index: currentIndex }
-        }
-      });
-      currentIndex += newlineText.length;
+      if (driveUrl) {
+        requests.push({
+          insertInlineImage: {
+            uri: driveUrl,
+            location: { index: currentIndex }
+          }
+        });
+        currentIndex += 1;
+        
+        const newlineText = '\n\n';
+        requests.push({
+          insertText: {
+            text: newlineText,
+            location: { index: currentIndex }
+          }
+        });
+        currentIndex += newlineText.length;
+      }
     }
 
     // Các blocks nội dung (lấy tất cả nội dung chữ bao gồm các đề mục, đoạn văn, và danh sách)
@@ -1034,44 +1035,45 @@ export async function syncPost(
         currentIndex += text.length;
       } else if (block.type === 'image' && block.imageUrl) {
         const driveUrl = imageUrlMap[block.imageUrl];
-        const targetUrl = driveUrl || block.imageUrl;
-        requests.push({
-          insertInlineImage: {
-            uri: targetUrl,
-            location: { index: currentIndex }
-          }
-        });
-        currentIndex += 1;
+        if (driveUrl) {
+          requests.push({
+            insertInlineImage: {
+              uri: driveUrl,
+              location: { index: currentIndex }
+            }
+          });
+          currentIndex += 1;
 
-        // Thêm caption nếu có altText
-        if (block.altText) {
-          const captionText = `\n${block.altText}\n\n`;
-          requests.push({
-            insertText: {
-              text: captionText,
-              location: { index: currentIndex }
-            }
-          });
-          requests.push({
-            updateTextStyle: {
-              textStyle: { italic: true, fontSize: { magnitude: 10, unit: 'PT' } },
-              fields: 'italic,fontSize',
-              range: {
-                startIndex: currentIndex,
-                endIndex: currentIndex + captionText.length
+          // Thêm caption nếu có altText
+          if (block.altText) {
+            const captionText = `\n${block.altText}\n\n`;
+            requests.push({
+              insertText: {
+                text: captionText,
+                location: { index: currentIndex }
               }
-            }
-          });
-          currentIndex += captionText.length;
-        } else {
-          const newlineText = '\n\n';
-          requests.push({
-            insertText: {
-              text: newlineText,
-              location: { index: currentIndex }
-            }
-          });
-          currentIndex += newlineText.length;
+            });
+            requests.push({
+              updateTextStyle: {
+                textStyle: { italic: true, fontSize: { magnitude: 10, unit: 'PT' } },
+                fields: 'italic,fontSize',
+                range: {
+                  startIndex: currentIndex,
+                  endIndex: currentIndex + captionText.length
+                }
+              }
+            });
+            currentIndex += captionText.length;
+          } else {
+            const newlineText = '\n\n';
+            requests.push({
+              insertText: {
+                text: newlineText,
+                location: { index: currentIndex }
+              }
+            });
+            currentIndex += newlineText.length;
+          }
         }
       }
     }
