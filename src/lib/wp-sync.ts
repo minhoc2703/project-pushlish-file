@@ -309,15 +309,34 @@ function parseParagraphContent($: cheerio.CheerioAPI, element: any): { text: str
 
 /**
  * Tải file từ URL và trả về Buffer
+ * Thêm User-Agent và Referer để vượt qua Cloudflare/hotlink protection
  */
 async function downloadImageAsBuffer(url: string): Promise<Buffer> {
-  const response = await fetch(url);
+  // Lấy origin từ URL ảnh để dùng làm Referer
+  let referer = '';
+  try {
+    const urlObj = new URL(url);
+    referer = urlObj.origin + '/';
+  } catch (e) {
+    // ignore
+  }
+
+  const headers: Record<string, string> = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+  };
+  if (referer) {
+    headers['Referer'] = referer;
+  }
+
+  const response = await fetch(url, { headers });
   if (!response.ok) {
-    throw new Error(`Không thể tải ảnh từ URL: ${url}`);
+    throw new Error(`Không thể tải ảnh từ URL (HTTP ${response.status}): ${url}`);
   }
   const arrayBuffer = await response.arrayBuffer();
   return Buffer.from(arrayBuffer);
 }
+
 
 /**
  * Tạo thư mục trên Google Drive
