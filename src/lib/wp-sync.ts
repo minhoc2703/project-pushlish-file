@@ -878,10 +878,11 @@ export async function syncPost(
     });
     currentIndex += mainTitleText.length;
 
-    // Chèn ảnh nổi bật (Featured Image) nếu có và đã tải lên Drive thành công
+    // Chèn ảnh nổi bật (Featured Image) nếu có, đã tải lên Drive thành công và không phải là ảnh WebP
     if (featuredImageUrl) {
       const driveUrl = imageUrlMap[featuredImageUrl];
-      if (driveUrl) {
+      const isWebP = featuredImageUrl.toLowerCase().endsWith('.webp');
+      if (driveUrl && !isWebP) {
         requests.push({
           insertInlineImage: {
             uri: driveUrl,
@@ -1035,7 +1036,8 @@ export async function syncPost(
         currentIndex += text.length;
       } else if (block.type === 'image' && block.imageUrl) {
         const driveUrl = imageUrlMap[block.imageUrl];
-        if (driveUrl) {
+        const isWebP = block.imageUrl.toLowerCase().endsWith('.webp');
+        if (driveUrl && !isWebP) {
           requests.push({
             insertInlineImage: {
               uri: driveUrl,
