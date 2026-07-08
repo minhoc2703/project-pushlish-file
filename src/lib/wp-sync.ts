@@ -878,6 +878,28 @@ export async function syncPost(
     });
     currentIndex += mainTitleText.length;
 
+    // Chèn ảnh nổi bật (Featured Image) nếu có
+    if (featuredImageUrl) {
+      const driveUrl = imageUrlMap[featuredImageUrl];
+      const targetUrl = driveUrl || featuredImageUrl;
+      requests.push({
+        insertInlineImage: {
+          uri: targetUrl,
+          location: { index: currentIndex }
+        }
+      });
+      currentIndex += 1;
+      
+      const newlineText = '\n\n';
+      requests.push({
+        insertText: {
+          text: newlineText,
+          location: { index: currentIndex }
+        }
+      });
+      currentIndex += newlineText.length;
+    }
+
     // Các blocks nội dung (lấy tất cả nội dung chữ bao gồm các đề mục, đoạn văn, và danh sách)
     for (const block of blocks) {
       if (block.type === 'heading') {
@@ -1010,10 +1032,62 @@ export async function syncPost(
         }
 
         currentIndex += text.length;
+      } else if (block.type === 'image' && block.imageUrl) {
+        const driveUrl = imageUrlMap[block.imageUrl];
+        const targetUrl = driveUrl || block.imageUrl;
+        requests.push({
+          insertInlineImage: {
+            uri: targetUrl,
+            location: { index: currentIndex }
+          }
+        });
+        currentIndex += 1;
+
+        // Thêm caption nếu có altText
+        if (block.altText) {
+          const captionText = `\n${block.altText}\n\n`;
+          requests.push({
+            insertText: {
+              text: captionText,
+              location: { index: currentIndex }
+            }
+          });
+          requests.push({
+            updateTextStyle: {
+              textStyle: { italic: true, fontSize: { magnitude: 10, unit: 'PT' } },
+              fields: 'italic,fontSize',
+              range: {
+                startIndex: currentIndex,
+                endIndex: currentIndex + captionText.length
+              }
+            }
+          });
+          currentIndex += captionText.length;
+        } else {
+          const newlineText = '\n\n';
+          requests.push({
+            insertText: {
+              text: newlineText,
+              location: { index: currentIndex }
+            }
+          });
+          currentIndex += newlineText.length;
+        }
       }
     }
     return requests;
   };
+
+  // Tạo danh sách đầy đủ tất cả URL ảnh theo thứ tự chèn để phục vụ cho việc khớp ID sau này
+  const allImageUrls: string[] = [];
+  if (featuredImageUrl) {
+    allImageUrls.push(featuredImageUrl);
+  }
+  blocks.forEach(block => {
+    if (block.type === 'image' && block.imageUrl) {
+      allImageUrls.push(block.imageUrl);
+    }
+  });
 
   // Gửi dữ liệu batchUpdate cập nhật nội dung văn bản
   const finalRequests = buildRequests();
@@ -1025,6 +1099,21 @@ export async function syncPost(
         requests: finalRequests,
       },
     });
+
+    // SAO LƯU ẢNH TRUNG GIAN QUA GOOGLE DOCS (Không bị Cloudflare chặn trên Vercel)
+    try {
+      await backupImagesFromDocToDrive(
+        docs,
+        drive,
+        docId,
+        imagesFolderId,
+        allImageUrls,
+        imageUrlMap,
+        onProgress
+      );
+    } catch (backupError: any) {
+      onProgress(`Cảnh báo: Không thể sao lưu ảnh ngược từ Doc sang Drive: ${backupError.message}`);
+    }
   }
 
   const docUrl = `https://docs.google.com/document/d/${docId}/edit`;
@@ -1148,3 +1237,119 @@ export async function checkIfSyncedInSheet(
   }
   return { synced: false };
 }
+
+/**
+ * Quét tài liệu Google Doc, tải các ảnh qua Google CDN (không bị Cloudflare chặn)
+ * và lưu trữ chúng vào thư mục Drive tương ứng.
+ */
+async function backupImagesFromDocToDrive(
+  docs: any,
+  drive: any,
+  docId: string,
+  imagesFolderId: string,
+  allImageUrls: string[],
+  imageUrlMap: { [key: string]: string },
+  onProgress: (msg: string) => void
+) {
+  onProgress('Đang quét cấu trúc Google Doc để lấy dữ liệu ảnh...');
+  const doc = await docs.documents.get({ documentId: docId });
+  const inlineObjects = doc.data.inlineObjects;
+  if (!inlineObjects) {
+    onProgress('Không tìm thấy ảnh nào trong Google Doc.');
+    return;
+  }
+
+  // Lấy danh sách ID ảnh theo thứ tự xuất hiện trong Doc
+  const imgIdsInOrder: string[] = [];
+  const walkBody = (element: any) => {
+    if (element.paragraph) {
+      for (const run of element.paragraph.elements || []) {
+        if (run.inlineObjectElement) {
+          imgIdsInOrder.push(run.inlineObjectElement.inlineObjectId);
+        }
+      }
+    }
+    if (element.table) {
+      for (const row of element.table.tableRows || []) {
+        for (const cell of row.tableCells || []) {
+          for (const content of cell.content || []) {
+            walkBody(content);
+          }
+        }
+      }
+    }
+  };
+  
+  for (const content of doc.data.body?.content || []) {
+    walkBody(content);
+  }
+
+  onProgress(`Tìm thấy ${imgIdsInOrder.length} ảnh trong Doc (tổng số URL ảnh: ${allImageUrls.length}). Bắt đầu sao lưu sang Drive...`);
+
+  // Duyệt qua từng ảnh trong Doc
+  for (let i = 0; i < imgIdsInOrder.length; i++) {
+    const objId = imgIdsInOrder[i];
+    const originalUrl = allImageUrls[i];
+    if (!originalUrl) continue;
+
+    // Nếu ảnh này đã được tải trực tiếp lên Drive thành công rồi thì bỏ qua
+    if (imageUrlMap[originalUrl]) {
+      continue;
+    }
+
+    const embeddedObject = inlineObjects[objId]?.inlineObjectProperties?.embeddedObject;
+    const contentUri = embeddedObject?.imageProperties?.contentUri;
+    
+    if (contentUri) {
+      try {
+        const imgName = originalUrl.split('/').pop()?.split('?')[0] || `image_${i + 1}.jpg`;
+        onProgress(`Đang tải ảnh qua Google CDN: ${imgName}...`);
+
+        const response = await fetch(contentUri);
+        if (!response.ok) {
+          throw new Error(`Google CDN trả về lỗi HTTP ${response.status}`);
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+
+        onProgress(`Đang lưu trữ ảnh vào Google Drive...`);
+        let contentType = 'image/jpeg';
+        if (originalUrl.endsWith('.png')) contentType = 'image/png';
+        else if (originalUrl.endsWith('.gif')) contentType = 'image/gif';
+        else if (originalUrl.endsWith('.webp')) contentType = 'image/webp';
+
+        const fileMetadata = {
+          name: imgName,
+          parents: [imagesFolderId],
+        };
+
+        const file = await drive.files.create({
+          requestBody: fileMetadata,
+          media: {
+            mimeType: contentType,
+            body: require('stream').Readable.from(buffer),
+          },
+          fields: 'id, webContentLink',
+        });
+
+        const fileId = file.data.id;
+        
+        // Cấp quyền public read
+        await drive.permissions.create({
+          fileId: fileId,
+          requestBody: {
+            role: 'reader',
+            type: 'anyone',
+          },
+        });
+
+        const publicUrl = `https://drive.google.com/uc?export=view&id=${fileId}`;
+        imageUrlMap[originalUrl] = publicUrl;
+        onProgress(`Đã sao lưu ảnh thành công lên Google Drive: ${imgName}`);
+      } catch (err: any) {
+        onProgress(`Cảnh báo: Không thể tải hoặc lưu ảnh qua Google: ${err.message}`);
+      }
+    }
+  }
+}
+
