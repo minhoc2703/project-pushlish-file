@@ -128,7 +128,13 @@ export async function fetchWpPosts(
   cleanUrl = cleanUrl.replace(/\/+$/, '');
 
   const apiUrl = `${cleanUrl}/wp-json/wp/v2/${contentType}?_embed&page=${page}&per_page=${perPage}`;
-  const response = await fetch(apiUrl);
+  const response = await fetch(apiUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'application/json, text/plain, */*'
+    },
+    cache: 'no-store'
+  });
   if (!response.ok) {
     throw new Error(`Không thể kết nối tới WordPress API: ${response.statusText} (${response.status})`);
   }
