@@ -878,29 +878,6 @@ export async function syncPost(
     });
     currentIndex += mainTitleText.length;
 
-    // Chèn ảnh nổi bật (Featured Image) nếu có, đã tải lên Drive thành công và không phải là ảnh WebP
-    if (featuredImageUrl) {
-      const driveUrl = imageUrlMap[featuredImageUrl];
-      const isWebP = featuredImageUrl.toLowerCase().endsWith('.webp');
-      if (driveUrl && !isWebP) {
-        requests.push({
-          insertInlineImage: {
-            uri: driveUrl,
-            location: { index: currentIndex }
-          }
-        });
-        currentIndex += 1;
-        
-        const newlineText = '\n\n';
-        requests.push({
-          insertText: {
-            text: newlineText,
-            location: { index: currentIndex }
-          }
-        });
-        currentIndex += newlineText.length;
-      }
-    }
 
     // Các blocks nội dung (lấy tất cả nội dung chữ bao gồm các đề mục, đoạn văn, và danh sách)
     for (const block of blocks) {
@@ -1034,64 +1011,10 @@ export async function syncPost(
         }
 
         currentIndex += text.length;
-      } else if (block.type === 'image' && block.imageUrl) {
-        const driveUrl = imageUrlMap[block.imageUrl];
-        const isWebP = block.imageUrl.toLowerCase().endsWith('.webp');
-        if (driveUrl && !isWebP) {
-          requests.push({
-            insertInlineImage: {
-              uri: driveUrl,
-              location: { index: currentIndex }
-            }
-          });
-          currentIndex += 1;
-
-          // Thêm caption nếu có altText
-          if (block.altText) {
-            const captionText = `\n${block.altText}\n\n`;
-            requests.push({
-              insertText: {
-                text: captionText,
-                location: { index: currentIndex }
-              }
-            });
-            requests.push({
-              updateTextStyle: {
-                textStyle: { italic: true, fontSize: { magnitude: 10, unit: 'PT' } },
-                fields: 'italic,fontSize',
-                range: {
-                  startIndex: currentIndex,
-                  endIndex: currentIndex + captionText.length
-                }
-              }
-            });
-            currentIndex += captionText.length;
-          } else {
-            const newlineText = '\n\n';
-            requests.push({
-              insertText: {
-                text: newlineText,
-                location: { index: currentIndex }
-              }
-            });
-            currentIndex += newlineText.length;
-          }
-        }
       }
     }
     return requests;
   };
-
-  // Tạo danh sách đầy đủ tất cả URL ảnh theo thứ tự chèn để phục vụ cho việc khớp ID sau này
-  const allImageUrls: string[] = [];
-  if (featuredImageUrl) {
-    allImageUrls.push(featuredImageUrl);
-  }
-  blocks.forEach(block => {
-    if (block.type === 'image' && block.imageUrl) {
-      allImageUrls.push(block.imageUrl);
-    }
-  });
 
   // Gửi dữ liệu batchUpdate cập nhật nội dung văn bản
   const finalRequests = buildRequests();
@@ -1103,21 +1026,6 @@ export async function syncPost(
         requests: finalRequests,
       },
     });
-
-    // SAO LƯU ẢNH TRUNG GIAN QUA GOOGLE DOCS (Không bị Cloudflare chặn trên Vercel)
-    try {
-      await backupImagesFromDocToDrive(
-        docs,
-        drive,
-        docId,
-        imagesFolderId,
-        allImageUrls,
-        imageUrlMap,
-        onProgress
-      );
-    } catch (backupError: any) {
-      onProgress(`Cảnh báo: Không thể sao lưu ảnh ngược từ Doc sang Drive: ${backupError.message}`);
-    }
   }
 
   const docUrl = `https://docs.google.com/document/d/${docId}/edit`;
