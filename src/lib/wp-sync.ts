@@ -315,48 +315,102 @@ function parseParagraphContent($: cheerio.CheerioAPI, element: any): { text: str
 }
 
 /**
- * Tải file từ URL và trả về Buffer bằng thư viện https gốc của Node.js
- * Tránh hoàn toàn sự can thiệp của Next.js fetch wrapper và caching
+ * Tải file từ URL và trả về Buffer bằng chiến lược thử lại nhiều lần (Fallback)
+ * Giúp vượt qua các chế độ bảo mật Cloudflare / WAF khác nhau trên Vercel
  */
-function downloadImageAsBuffer(url: string): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    let referer = '';
-    try {
-      const urlObj = new URL(url);
-      referer = urlObj.origin + '/';
-    } catch (e) {}
+async function downloadImageAsBuffer(url: string): Promise<Buffer> {
+  const errors: string[] = [];
 
-    const headers: Record<string, string> = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
-      'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
-      'Cache-Control': 'no-cache',
-      'Pragma': 'no-cache'
-    };
-    if (referer) {
-      headers['Referer'] = referer;
-    }
+  // Lấy origin từ URL ảnh để dùng làm Referer
+  let referer = '';
+  try {
+    const urlObj = new URL(url);
+    referer = urlObj.origin + '/';
+  } catch (e) {}
 
-    const options = {
-      headers,
-      timeout: 15000
-    };
+  const browserUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-    https.get(url, options, (res) => {
-      if (res.statusCode !== 200) {
-        reject(new Error(`Không thể tải ảnh từ URL (HTTP ${res.statusCode}): ${url}`));
-        return;
-      }
-
-      const chunks: any[] = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => {
-        resolve(Buffer.concat(chunks));
-      });
-    }).on('error', (err) => {
-      reject(err);
+  // Cách 1: Thử dùng fetch với User-Agent đơn giản (giống như cách lấy WP posts thành công trên Vercel)
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': browserUserAgent,
+        'Accept': 'image/webp,image/apng,image/*,*/*'
+      },
+      cache: 'no-store'
     });
-  });
+    if (response.ok) {
+      const arrayBuffer = await response.arrayBuffer();
+      return Buffer.from(arrayBuffer);
+    }
+    errors.push(`Cách 1 (fetch): HTTP ${response.status}`);
+  } catch (err: any) {
+    errors.push(`Cách 1 (fetch) lỗi: ${err.message}`);
+  }
+
+  // Cách 2: Thử dùng https.get gốc với đầy đủ headers trình duyệt bao gồm Referer
+  try {
+    const buffer = await new Promise<Buffer>((resolve, reject) => {
+      const headers: Record<string, string> = {
+        'User-Agent': browserUserAgent,
+        'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+        'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
+      };
+      if (referer) {
+        headers['Referer'] = referer;
+      }
+      https.get(url, { headers, timeout: 10000 }, (res) => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode}`));
+          return;
+        }
+        const chunks: any[] = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => resolve(Buffer.concat(chunks)));
+      }).on('error', reject);
+    });
+    return buffer;
+  } catch (err: any) {
+    errors.push(`Cách 2 (https.get + referer) lỗi: ${err.message}`);
+  }
+
+  // Cách 3: Thử dùng https.get gốc KHÔNG có Referer (phòng trường hợp hotlink protection chặn referer giả)
+  try {
+    const buffer = await new Promise<Buffer>((resolve, reject) => {
+      const headers: Record<string, string> = {
+        'User-Agent': browserUserAgent,
+        'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+      };
+      https.get(url, { headers, timeout: 10000 }, (res) => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode}`));
+          return;
+        }
+        const chunks: any[] = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => resolve(Buffer.concat(chunks)));
+      }).on('error', reject);
+    });
+    return buffer;
+  } catch (err: any) {
+    errors.push(`Cách 3 (https.get không referer) lỗi: ${err.message}`);
+  }
+
+  // Cách 4: Thử dùng fetch thô hoàn toàn không gửi headers
+  try {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (response.ok) {
+      const arrayBuffer = await response.arrayBuffer();
+      return Buffer.from(arrayBuffer);
+    }
+    errors.push(`Cách 4 (fetch thô): HTTP ${response.status}`);
+  } catch (err: any) {
+    errors.push(`Cách 4 (fetch thô) lỗi: ${err.message}`);
+  }
+
+  throw new Error(`Đã thử 4 cách tải ảnh đều thất bại. Chi tiết lỗi: ${errors.join(' | ')}`);
 }
 
 
