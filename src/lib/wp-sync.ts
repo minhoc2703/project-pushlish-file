@@ -2,6 +2,7 @@ import { google } from 'googleapis';
 import * as cheerio from 'cheerio';
 import path from 'path';
 import fs from 'fs';
+import https from 'https';
 
 // Interface cho cấu trúc dữ liệu bài viết WordPress
 export interface WpPost {
@@ -308,33 +309,48 @@ function parseParagraphContent($: cheerio.CheerioAPI, element: any): { text: str
 }
 
 /**
- * Tải file từ URL và trả về Buffer
- * Thêm User-Agent và Referer để vượt qua Cloudflare/hotlink protection
+ * Tải file từ URL và trả về Buffer bằng thư viện https gốc của Node.js
+ * Tránh hoàn toàn sự can thiệp của Next.js fetch wrapper và caching
  */
-async function downloadImageAsBuffer(url: string): Promise<Buffer> {
-  // Lấy origin từ URL ảnh để dùng làm Referer
-  let referer = '';
-  try {
-    const urlObj = new URL(url);
-    referer = urlObj.origin + '/';
-  } catch (e) {
-    // ignore
-  }
+function downloadImageAsBuffer(url: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    let referer = '';
+    try {
+      const urlObj = new URL(url);
+      referer = urlObj.origin + '/';
+    } catch (e) {}
 
-  const headers: Record<string, string> = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
-  };
-  if (referer) {
-    headers['Referer'] = referer;
-  }
+    const headers: Record<string, string> = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+      'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache'
+    };
+    if (referer) {
+      headers['Referer'] = referer;
+    }
 
-  const response = await fetch(url, { headers, cache: 'no-store' });
-  if (!response.ok) {
-    throw new Error(`Không thể tải ảnh từ URL (HTTP ${response.status}): ${url}`);
-  }
-  const arrayBuffer = await response.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+    const options = {
+      headers,
+      timeout: 15000
+    };
+
+    https.get(url, options, (res) => {
+      if (res.statusCode !== 200) {
+        reject(new Error(`Không thể tải ảnh từ URL (HTTP ${res.statusCode}): ${url}`));
+        return;
+      }
+
+      const chunks: any[] = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        resolve(Buffer.concat(chunks));
+      });
+    }).on('error', (err) => {
+      reject(err);
+    });
+  });
 }
 
 
@@ -903,7 +919,7 @@ export async function syncPost(
           : 'BULLET_DISC_CIRCLE_SQUARE';
 
         requests.push({
-          createBulletPreset: {
+          createParagraphBullets: {
             range: {
               startIndex: currentIndex,
               endIndex: currentIndex + text.length,
