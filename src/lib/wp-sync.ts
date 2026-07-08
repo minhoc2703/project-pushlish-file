@@ -476,7 +476,7 @@ async function uploadImageToDriveAndGetUrl(
   });
 
   // Link tải trực tiếp (direct link) dùng cho Google Docs
-  const publicUrl = `https://drive.google.com/uc?export=view&id=${fileId}`;
+  const publicUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
 
   return { fileId, publicUrl };
 }
@@ -1345,7 +1345,7 @@ async function backupImagesFromDocToDrive(
           },
         });
 
-        const publicUrl = `https://drive.google.com/uc?export=view&id=${fileId}`;
+        const publicUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
         imageUrlMap[originalUrl] = publicUrl;
         onProgress(`Đã sao lưu ảnh thành công lên Google Drive: ${imgName}`);
       } catch (err: any) {
