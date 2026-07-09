@@ -1,13 +1,11 @@
 import { NextResponse } from 'next/server';
-import { fetchWpPosts, getGoogleAuth, matchSlugWords, matchTitleWords } from '@/lib/wp-sync';
+import { fetchAllWpPosts, getGoogleAuth, matchSlugWords, matchTitleWords } from '@/lib/wp-sync';
 import { google } from 'googleapis';
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const siteUrl = searchParams.get('siteUrl');
-    const page = parseInt(searchParams.get('page') || '1');
-    const perPage = parseInt(searchParams.get('perPage') || '10');
     const contentType = (searchParams.get('type') || 'posts') as 'posts' | 'pages';
     const spreadsheetId = searchParams.get('spreadsheetId');
 
@@ -15,7 +13,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: 'Thiếu tham số siteUrl' }, { status: 400 });
     }
 
-    const posts = await fetchWpPosts(siteUrl, page, perPage, contentType);
+    const posts = await fetchAllWpPosts(siteUrl, contentType);
 
     // Nếu có spreadsheetId, quét Sheet để đánh dấu các bài viết đã đồng bộ trước đó
     if (spreadsheetId) {

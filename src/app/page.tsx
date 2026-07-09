@@ -69,9 +69,6 @@ export default function Home() {
   const [currentSyncingPost, setCurrentSyncingPost] = useState<PostState | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Pagination states
-  const [wpPage, setWpPage] = useState(1);
-  const [perPage, setPerPage] = useState(10);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
   const [autoWriteToSheet, setAutoWriteToSheet] = useState(false);
   const [sortBy, setSortBy] = useState<'wp_date' | 'sheet_row'>('wp_date');
@@ -235,7 +232,7 @@ export default function Home() {
     }
     setLoadingPosts(true);
     try {
-      const res = await fetch(`/api/wp/posts?siteUrl=${encodeURIComponent(siteUrl)}&page=${wpPage}&perPage=${perPage}&type=${contentType}&spreadsheetId=${encodeURIComponent(spreadsheetId)}`);
+      const res = await fetch(`/api/wp/posts?siteUrl=${encodeURIComponent(siteUrl)}&type=${contentType}&spreadsheetId=${encodeURIComponent(spreadsheetId)}`);
       const data = await res.json();
       if (data.success) {
         const formatted = data.posts.map((post: any) => {
@@ -786,37 +783,6 @@ export default function Home() {
                     </div>
                   )}
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500">Số lượng:</span>
-                    <select
-                      value={perPage}
-                      onChange={(e) => setPerPage(parseInt(e.target.value))}
-                      className="bg-slate-950/80 border border-slate-800 rounded-lg text-xs py-1 px-2 text-slate-300 outline-none"
-                    >
-                      <option value="5">5 bài</option>
-                      <option value="10">10 bài</option>
-                      <option value="20">20 bài</option>
-                      <option value="50">50 bài</option>
-                    </select>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setWpPage(Math.max(1, wpPage - 1))}
-                      disabled={wpPage <= 1}
-                      className="px-2.5 py-1 bg-slate-950/80 border border-slate-800 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 disabled:opacity-50"
-                    >
-                      Trước
-                    </button>
-                    <span className="text-xs text-slate-400 self-center font-semibold">Trang {wpPage}</span>
-                    <button
-                      onClick={() => setWpPage(wpPage + 1)}
-                      disabled={posts.length < perPage}
-                      className="px-2.5 py-1 bg-slate-950/80 border border-slate-800 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 disabled:opacity-50"
-                    >
-                      Sau
-                    </button>
-                  </div>
                 </div>
               </div>
 

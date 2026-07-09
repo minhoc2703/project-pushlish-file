@@ -112,12 +112,10 @@ export function getGoogleAuth() {
 }
 
 /**
- * Lấy danh sách bài viết hoặc trang tĩnh từ WordPress REST API
+ * Lấy TẤT CẢ danh sách bài viết hoặc trang tĩnh từ WordPress REST API (tự động phân trang)
  */
-export async function fetchWpPosts(
+export async function fetchAllWpPosts(
   siteUrl: string,
-  page = 1,
-  perPage = 10,
   contentType: 'posts' | 'pages' = 'posts'
 ): Promise<WpPost[]> {
   // Chuẩn hóa URL
@@ -127,18 +125,39 @@ export async function fetchWpPosts(
   }
   cleanUrl = cleanUrl.replace(/\/+$/, '');
 
-  const apiUrl = `${cleanUrl}/wp-json/wp/v2/${contentType}?_embed&page=${page}&per_page=${perPage}`;
-  const response = await fetch(apiUrl, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': 'application/json, text/plain, */*'
-    },
-    cache: 'no-store'
-  });
-  if (!response.ok) {
-    throw new Error(`Không thể kết nối tới WordPress API: ${response.statusText} (${response.status})`);
+  const allPosts: WpPost[] = [];
+  let page = 1;
+  const perPage = 100; // WordPress REST API max per_page
+
+  while (true) {
+    const apiUrl = `${cleanUrl}/wp-json/wp/v2/${contentType}?_embed&page=${page}&per_page=${perPage}`;
+    const response = await fetch(apiUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*'
+      },
+      cache: 'no-store'
+    });
+
+    // Trang không tồn tại (WP trả về 400 khi page vượt quá tổng số trang)
+    if (response.status === 400) break;
+
+    if (!response.ok) {
+      throw new Error(`Không thể kết nối tới WordPress API: ${response.statusText} (${response.status})`);
+    }
+
+    const posts: WpPost[] = await response.json();
+    if (posts.length === 0) break;
+
+    allPosts.push(...posts);
+
+    // Nếu số bài trả về ít hơn per_page thì đã hết
+    if (posts.length < perPage) break;
+
+    page++;
   }
-  return response.json();
+
+  return allPosts;
 }
 
 /**
